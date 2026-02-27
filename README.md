@@ -14,6 +14,9 @@ _Last updated 2/13/2025_
   - ```config/*.yaml``` - modify model hyperparameters and PyTorch Lightning training configuration
     - **Q: How do we update these configuration files?** A: Note the structure of YAML files include basic key-value pairs (i.e. ```<key>: <value>```) and hierarchical structure. So, for instance, if we wanted to update the ```mlp_features``` hyperparameter of the ```TDSConvCTCModule```, we would change the value at line 5 of ```config/model/tds_conv_ctc.yaml``` (under ```module```). _Read more details [here](https://pytorch-lightning.readthedocs.io/en/1.3.8/common/lightning_cli.html)._
     - **Q: Where do we configure data splitting?** A: Refer to ```config/user/single_user.yaml```. Be careful with your edits, so that you don't accidentally move the test data into your training set.
+    - **Q: In Colab, `pip install -r requirements.txt` fails while building `camel-kenlm`. What should I do?** A: If you are running `decoder=ctc_greedy`, install requirements *without* KenLM first (the updated `Colab_setup.ipynb` does this automatically), then run training/testing. KenLM is only required for `decoder=ctc_beam`.
+    - **Q: How do I run 40 epochs for single-user training?** A: Add the Hydra override `trainer.max_epochs=40` to your training command.
+    - **Q: Where are CER and TensorBoard logs?** A: CER appears in the final printed `val_metrics` and `test_metrics` dictionaries after `python -m emg2qwerty.train` finishes. Hydra outputs are under `logs/<date>/<time>/`, and TensorBoard can be launched with `%tensorboard --logdir logs`.
 
 # emg2qwerty
 [ [`Paper`](https://arxiv.org/abs/2410.20081) ] [ [`Dataset`](https://fb-ctrl-oss.s3.amazonaws.com/emg2qwerty/emg2qwerty-data-2021-08.tar.gz) ] [ [`Blog`](https://ai.meta.com/blog/open-sourcing-surface-electromyography-datasets-neurips-2024/) ] [ [`BibTeX`](#citing-emg2qwerty) ]
