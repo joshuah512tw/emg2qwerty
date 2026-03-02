@@ -278,3 +278,45 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+class LSTMEncoder(nn.Module):
+    """An LSTM-based sequence encoder that processes EMG feature sequences.
+
+    Accepts inputs of shape (T, N, num_features) and returns outputs of
+    shape (T, N, hidden_size * num_directions).
+
+    Args:
+        num_features (int): Number of input features per time step.
+        hidden_size (int): Number of features in the LSTM hidden state.
+        num_layers (int): Number of stacked LSTM layers. (default: 3)
+        dropout (float): Dropout probability applied between LSTM layers.
+            Only used when ``num_layers`` > 1. (default: 0.0)
+        bidirectional (bool): If True, use a bidirectional LSTM, doubling
+            the output feature size. (default: True)
+    """
+
+    def __init__(
+        self,
+        num_features: int,
+        hidden_size: int,
+        num_layers: int = 3,
+        dropout: float = 0.0,
+        bidirectional: bool = True,
+    ) -> None:
+        super().__init__()
+
+        self.lstm = nn.LSTM(
+            input_size=num_features,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout if num_layers > 1 else 0.0,
+            bidirectional=bidirectional,
+            batch_first=False,  # expects (T, N, features)
+        )
+        self.out_features = hidden_size * (2 if bidirectional else 1)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # inputs: (T, N, num_features)
+        outputs, _ = self.lstm(inputs)
+        return outputs  # (T, N, out_features)
