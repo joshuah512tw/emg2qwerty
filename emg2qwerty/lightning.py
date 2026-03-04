@@ -137,10 +137,12 @@ class WindowedEMGDataModule(pl.LightningDataModule):
             persistent_workers=True,
         )
 
-
-class TDSConvCTCModule(pl.LightningModule):
+class CTCModule(pl.LightningModule):
     NUM_BANDS: ClassVar[int] = 2
     ELECTRODE_CHANNELS: ClassVar[int] = 16
+
+
+class TDSConvCTCModule(CTCModule):
 
     def __init__(
         self,
@@ -272,7 +274,7 @@ class TDSConvCTCModule(pl.LightningModule):
             lr_scheduler_config=self.hparams.lr_scheduler,
         )
     
-class LSTMCTCModule(TDSConvCTCModule):
+class LSTMCTCModule(CTCModule):
 
     def __init__(
         self,
@@ -285,7 +287,7 @@ class LSTMCTCModule(TDSConvCTCModule):
         decoder: DictConfig,
     ) -> None:
         # Call nn.Module.__init__ directly to skip TDSConvCTCModule.__init__
-        pl.LightningModule.__init__(self)
+        super().__init__()
         self.save_hyperparameters(
             "in_features", "mlp_features", "hidden_size", "num_layers",
             "optimizer", "lr_scheduler", "decoder",
