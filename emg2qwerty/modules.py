@@ -278,3 +278,53 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+class LSTMCell(nn.Module):
+    """Computes a single time step of an LSTM. All four gates live here."""
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        # One linear layer that computes all 4 gates at once (4*hidden_size outputs)
+        self.linear = nn.Linear(input_size + hidden_size, 4 * hidden_size)
+
+    def forward(self, x, h_prev, c_prev):
+        gates = self.linear(torch.cat([x, h_prev], dim=-1))
+        f, i ,g, o = gates.chunk(4, dim=-1)
+        f, i, o =  f.sigmoid(), i.sigmoid(), o.sigmoid()
+        g = g.tanh()
+        c = f * c_prev + i * g
+        h = o * c.tanh()
+        return h, c
+    
+class LSTMLayer(nn.Module):
+    """Loops LSTMCell over time steps T."""
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.cell = LSTMCell(input_size, hidden_size)
+    
+    def forward(self, inputs):
+        T, N, _ = inputs.shape
+        h = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c = torch.zeros(N, self.hidden_size, device=inputs.device)
+        outputs = []
+        for t in range(T):
+            h, c = self.cell(inputs[t], h, c)
+            outputs.append(h)
+        return torch.stack(outputs, dim=0)  # (T, N, hidden_size)
+    
+class LSTMEncoder(nn.Module):
+    """Stacks multiple LSTMLayers, giving the same interface as TDSConvEncoder."""
+    def __init__(self, input_size, hidden_size, num_layers):
+        super().__init__()
+        sizes = [input_size] + [hidden_size] * num_layers
+        self.layers = nn.ModuleList([
+            LSTMLayer(sizes[i], sizes[i+1]) for i in range(num_layers)
+        ])
+
+    def forward(self, inputs):
+        x = inputs
+        for layer in self.layers:
+            x = layer(x)
+        return x  # (T, N, hidden_size)
+
