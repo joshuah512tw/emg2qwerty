@@ -283,7 +283,10 @@ class LSTMCTCModule(TDSConvCTCModule):
         decoder: DictConfig,
     ) -> None:
         pl.LightningModule.__init__(self)
-        self.save_hyperparameters()
+        self.save_hyperparameters(
+            "in_features", "mlp_features", "hidden_size", "num_layers",
+            "optimizer", "lr_scheduler", "decoder",
+        )
 
         num_features = self.NUM_BANDS * mlp_features[-1]
 
