@@ -271,6 +271,7 @@ class LSTMCTCModule(CTCModule):
         optimizer: DictConfig,
         lr_scheduler: DictConfig,
         decoder: DictConfig,
+        dropout: float = 0.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()  
@@ -289,6 +290,7 @@ class LSTMCTCModule(CTCModule):
                 input_size=num_features,
                 hidden_size=hidden_size,
                 num_layers=num_layers,
+                dropout=dropout,
             ),
             nn.Linear(hidden_size, charset().num_classes),
             nn.LogSoftmax(dim=-1),
