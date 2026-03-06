@@ -26,6 +26,7 @@ from emg2qwerty.modules import (
     SpectrogramNorm,
     TDSConvEncoder,
     LSTMEncoder,
+    TemporalSelfAttention,
 )
 from emg2qwerty.transforms import Transform
 
@@ -272,13 +273,25 @@ class LSTMCTCModule(CTCModule):
         lr_scheduler: DictConfig,
         decoder: DictConfig,
         dropout: float = 0.0,
+        bidirectional: bool = False,
+        use_attention: bool = False,
+        attention_heads: int = 8,
     ) -> None:
         super().__init__()
-        self.save_hyperparameters()  
+        self.save_hyperparameters()
 
         num_features = self.NUM_BANDS * mlp_features[-1]
 
-        self.model = nn.Sequential(
+        lstm = LSTMEncoder(
+            input_size=num_features,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            bidirectional=bidirectional,
+        )
+        lstm_out_size = lstm.output_size
+
+        layers = [
             SpectrogramNorm(channels=self.NUM_BANDS * self.ELECTRODE_CHANNELS),
             MultiBandRotationInvariantMLP(
                 in_features=in_features,
@@ -286,15 +299,15 @@ class LSTMCTCModule(CTCModule):
                 num_bands=self.NUM_BANDS,
             ),
             nn.Flatten(start_dim=2),
-            LSTMEncoder(
-                input_size=num_features,
-                hidden_size=hidden_size,
-                num_layers=num_layers,
-                dropout=dropout,
-            ),
-            nn.Linear(hidden_size, charset().num_classes),
+            lstm,
+        ]
+        if use_attention:
+            layers.append(TemporalSelfAttention(lstm_out_size, attention_heads))
+        layers += [
+            nn.Linear(lstm_out_size, charset().num_classes),
             nn.LogSoftmax(dim=-1),
-        )
+        ]
+        self.model = nn.Sequential(*layers)
 
         self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
         self.decoder = instantiate(decoder)

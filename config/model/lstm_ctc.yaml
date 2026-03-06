@@ -6,6 +6,9 @@ module:
   hidden_size: 768   # = NUM_BANDS * mlp_features[-1], matches TDS output size
   num_layers: 2
   dropout: 0.2
+  bidirectional: true
+  use_attention: true
+  attention_heads: 8
 
 datamodule:
   _target_: emg2qwerty.lightning.WindowedEMGDataModule

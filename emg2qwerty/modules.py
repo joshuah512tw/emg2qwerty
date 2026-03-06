@@ -302,7 +302,7 @@ class LSTMLayer(nn.Module):
         super().__init__()
         self.hidden_size = hidden_size
         self.cell = LSTMCell(input_size, hidden_size)
-    
+
     def forward(self, inputs):
         T, N, _ = inputs.shape
         h = torch.zeros(N, self.hidden_size, device=inputs.device)
@@ -312,16 +312,56 @@ class LSTMLayer(nn.Module):
             h, c = self.cell(inputs[t], h, c)
             outputs.append(h)
         return torch.stack(outputs, dim=0)  # (T, N, hidden_size)
-    
+
+
+class BidirectionalLSTMLayer(nn.Module):
+    """Forward + backward LSTMLayer with outputs concatenated along feature dim."""
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.forward_layer = LSTMLayer(input_size, hidden_size)
+        self.backward_layer = LSTMLayer(input_size, hidden_size)
+
+    def forward(self, inputs):
+        fwd = self.forward_layer(inputs)                    # (T, N, hidden_size)
+        bwd = self.backward_layer(inputs.flip(0)).flip(0)  # (T, N, hidden_size)
+        return torch.cat([fwd, bwd], dim=-1)               # (T, N, 2*hidden_size)
+
+
+class TemporalSelfAttention(nn.Module):
+    """Multi-head self-attention over the time axis with residual + LayerNorm.
+
+    Wraps nn.MultiheadAttention so it can be placed in nn.Sequential.
+    Input/output shape: (T, N, embed_dim).
+    """
+    def __init__(self, embed_dim, num_heads, dropout=0.0):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)
+        self.norm = nn.LayerNorm(embed_dim)
+
+    def forward(self, x):
+        attn_out, _ = self.attn(x, x, x)   # query=key=value=x
+        return self.norm(x + attn_out)      # residual connection + LayerNorm
+
+
 class LSTMEncoder(nn.Module):
     """Stacks multiple LSTMLayers, giving the same interface as TDSConvEncoder."""
-    def __init__(self, input_size, hidden_size, num_layers, dropout=0.2):
+    def __init__(self, input_size, hidden_size, num_layers, dropout=0.2,
+                 bidirectional=False):
         super().__init__()
-        sizes = [input_size] + [hidden_size] * num_layers
+        self.hidden_size = hidden_size
+        self.bidirectional = bidirectional
+        layer_cls = BidirectionalLSTMLayer if bidirectional else LSTMLayer
+        out_size = 2 * hidden_size if bidirectional else hidden_size
+        # Each layer takes the previous layer's output size as input
+        in_sizes = [input_size] + [out_size] * (num_layers - 1)
         self.layers = nn.ModuleList([
-            LSTMLayer(sizes[i], sizes[i+1]) for i in range(num_layers)
+            layer_cls(in_sizes[i], hidden_size) for i in range(num_layers)
         ])
         self.dropout = nn.Dropout(dropout)
+
+    @property
+    def output_size(self):
+        return 2 * self.hidden_size if self.bidirectional else self.hidden_size
 
     def forward(self, inputs):
         x = inputs
@@ -329,5 +369,5 @@ class LSTMEncoder(nn.Module):
             x = layer(x)
             if i < len(self.layers) - 1:  # skip dropout after last layer
                 x = self.dropout(x)
-        return x  # (T, N, hidden_size)
+        return x  # (T, N, output_size)
 
