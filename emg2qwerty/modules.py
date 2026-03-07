@@ -363,3 +363,36 @@ class LSTMEncoder(nn.Module):
                 x = self.dropout(x)
         return x  # (T, N, 2*hidden_size)
 
+
+class TemporalAttention(nn.Module):
+    """Multi-head self-attention over the time dimension (T) for inputs of
+    shape (T, N, d_model), typically applied after a BiLSTM encoder to let
+    every time step attend to every other time step.
+
+    The module follows the Transformer encoder-layer convention:
+    output = LayerNorm(x + MultiheadAttention(x, x, x))
+
+    Args:
+        d_model (int): Feature dimension of the input, i.e. 2 * hidden_size
+            when used after a BiLSTM encoder.
+        num_heads (int): Number of parallel attention heads. Must evenly
+            divide ``d_model``. (default: 8)
+        dropout (float): Dropout probability applied inside the attention
+            operation. (default: 0.0)
+    """
+
+    def __init__(self, d_model: int, num_heads: int = 8, dropout: float = 0.0) -> None:
+        super().__init__()
+        self.attn = nn.MultiheadAttention(
+            embed_dim=d_model,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=False,  # expects (T, N, d_model)
+        )
+        self.layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # inputs: (T, N, d_model)
+        attn_out, _ = self.attn(inputs, inputs, inputs)
+        return self.layer_norm(inputs + attn_out)  # (T, N, d_model)
+
