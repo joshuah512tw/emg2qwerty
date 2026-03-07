@@ -22,10 +22,12 @@ from emg2qwerty.charset import charset
 from emg2qwerty.data import LabelData, WindowedEMGDataset
 from emg2qwerty.metrics import CharacterErrorRates
 from emg2qwerty.modules import (
+    BidirectionalLSTMEncoder,
     MultiBandRotationInvariantMLP,
     SpectrogramNorm,
     TDSConvEncoder,
     LSTMEncoder,
+    TemporalSelfAttention,
 )
 from emg2qwerty.transforms import Transform
 
@@ -260,6 +262,80 @@ class TDSConvCTCModule(CTCModule):
         )
 
     
+class BidirectionalLSTMCTCModule(CTCModule):
+    """CTC module using a stacked BiLSTM encoder followed by temporal
+    self-attention over the T dimension.
+
+    Architecture:
+        SpectrogramNorm
+        → MultiBandRotationInvariantMLP + Flatten
+        → BidirectionalLSTMEncoder       # (T, N, 2*hidden_size)
+        → TemporalSelfAttention          # (T, N, 2*hidden_size), captures long-range context
+        → Linear + LogSoftmax            # (T, N, num_classes)
+
+    Args:
+        in_features (int): Input frequency-bin features per electrode.
+        mlp_features (list): MLP hidden sizes for MultiBandRotationInvariantMLP.
+        hidden_size (int): Hidden size per direction in BiLSTM.
+            The BiLSTM output size is 2*hidden_size.
+        num_layers (int): Number of stacked BiLSTM layers.
+        num_attention_heads (int): Number of heads in TemporalSelfAttention.
+            2*hidden_size must be divisible by num_attention_heads.
+        dropout (float): Dropout between BiLSTM layers and inside attention.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        mlp_features: Sequence[int],
+        hidden_size: int,
+        num_layers: int,
+        num_attention_heads: int,
+        optimizer: DictConfig,
+        lr_scheduler: DictConfig,
+        decoder: DictConfig,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.save_hyperparameters()
+
+        num_features = self.NUM_BANDS * mlp_features[-1]
+        bilstm_out_size = 2 * hidden_size
+
+        self.model = nn.Sequential(
+            SpectrogramNorm(channels=self.NUM_BANDS * self.ELECTRODE_CHANNELS),
+            MultiBandRotationInvariantMLP(
+                in_features=in_features,
+                mlp_features=mlp_features,
+                num_bands=self.NUM_BANDS,
+            ),
+            nn.Flatten(start_dim=2),
+            BidirectionalLSTMEncoder(
+                input_size=num_features,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                dropout=dropout,
+            ),
+            TemporalSelfAttention(
+                embed_dim=bilstm_out_size,
+                num_heads=num_attention_heads,
+                dropout=dropout,
+            ),
+            nn.Linear(bilstm_out_size, charset().num_classes),
+            nn.LogSoftmax(dim=-1),
+        )
+
+        self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
+        self.decoder = instantiate(decoder)
+        metrics = MetricCollection([CharacterErrorRates()])
+        self.metrics = nn.ModuleDict(
+            {
+                f"{phase}_metrics": metrics.clone(prefix=f"{phase}/")
+                for phase in ["train", "val", "test"]
+            }
+        )
+
+
 class LSTMCTCModule(CTCModule):
 
     def __init__(

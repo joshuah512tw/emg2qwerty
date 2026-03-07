@@ -295,14 +295,14 @@ class LSTMCell(nn.Module):
         c = f * c_prev + i * g
         h = o * c.tanh()
         return h, c
-    
+
 class LSTMLayer(nn.Module):
     """Loops LSTMCell over time steps T."""
     def __init__(self, input_size, hidden_size):
         super().__init__()
         self.hidden_size = hidden_size
         self.cell = LSTMCell(input_size, hidden_size)
-    
+
     def forward(self, inputs):
         T, N, _ = inputs.shape
         h = torch.zeros(N, self.hidden_size, device=inputs.device)
@@ -312,7 +312,7 @@ class LSTMLayer(nn.Module):
             h, c = self.cell(inputs[t], h, c)
             outputs.append(h)
         return torch.stack(outputs, dim=0)  # (T, N, hidden_size)
-    
+
 class LSTMEncoder(nn.Module):
     """Stacks multiple LSTMLayers, giving the same interface as TDSConvEncoder."""
     def __init__(self, input_size, hidden_size, num_layers, dropout):
@@ -330,4 +330,92 @@ class LSTMEncoder(nn.Module):
             if i < len(self.layers) - 1:  # skip dropout after last layer
                 x = self.dropout(x)
         return x  # (T, N, hidden_size)
+
+
+class BidirectionalLSTMLayer(nn.Module):
+    """Runs two LSTMCells over T (forward and backward) and concatenates outputs.
+
+    Returns a tensor of shape (T, N, 2*hidden_size).
+    """
+    def __init__(self, input_size: int, hidden_size: int) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.fwd_cell = LSTMCell(input_size, hidden_size)
+        self.bwd_cell = LSTMCell(input_size, hidden_size)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        T, N, _ = inputs.shape
+        h_f = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c_f = torch.zeros(N, self.hidden_size, device=inputs.device)
+        h_b = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c_b = torch.zeros(N, self.hidden_size, device=inputs.device)
+
+        fwd_outputs = []
+        for t in range(T):
+            h_f, c_f = self.fwd_cell(inputs[t], h_f, c_f)
+            fwd_outputs.append(h_f)
+
+        bwd_outputs = []
+        for t in range(T - 1, -1, -1):
+            h_b, c_b = self.bwd_cell(inputs[t], h_b, c_b)
+            bwd_outputs.append(h_b)
+        bwd_outputs.reverse()
+
+        fwd = torch.stack(fwd_outputs, dim=0)  # (T, N, hidden_size)
+        bwd = torch.stack(bwd_outputs, dim=0)  # (T, N, hidden_size)
+        return torch.cat([fwd, bwd], dim=-1)   # (T, N, 2*hidden_size)
+
+
+class BidirectionalLSTMEncoder(nn.Module):
+    """Stacks multiple BidirectionalLSTMLayers with dropout between layers.
+
+    Each layer outputs (T, N, 2*hidden_size), so layers after the first
+    receive 2*hidden_size input features.
+
+    Returns a tensor of shape (T, N, 2*hidden_size).
+    """
+    def __init__(self, input_size: int, hidden_size: int, num_layers: int, dropout: float) -> None:
+        super().__init__()
+        # Layer 0 takes the raw input_size; subsequent layers take 2*hidden_size
+        # because the previous layer concatenated forward and backward outputs.
+        layer_input_sizes = [input_size] + [2 * hidden_size] * (num_layers - 1)
+        self.layers = nn.ModuleList([
+            BidirectionalLSTMLayer(layer_input_sizes[i], hidden_size)
+            for i in range(num_layers)
+        ])
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        x = inputs
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if i < len(self.layers) - 1:  # skip dropout after last layer
+                x = self.dropout(x)
+        return x  # (T, N, 2*hidden_size)
+
+
+class TemporalSelfAttention(nn.Module):
+    """Multi-head self-attention over the T (time) dimension.
+
+    Each time step attends to all other time steps, capturing long-range
+    temporal context from the BiLSTM output. A residual connection and
+    layer norm are applied after attention (pre-norm style).
+
+    Input/output shape: (T, N, embed_dim).
+
+    Args:
+        embed_dim (int): Feature dimension (must equal 2*hidden_size from BiLSTM).
+        num_heads (int): Number of attention heads. embed_dim must be divisible
+            by num_heads.
+        dropout (float): Dropout applied inside attention. (default: 0.0)
+    """
+    def __init__(self, embed_dim: int, num_heads: int, dropout: float = 0.0) -> None:
+        super().__init__()
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout)
+        self.layer_norm = nn.LayerNorm(embed_dim)
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # inputs: (T, N, embed_dim) — nn.MultiheadAttention expects this layout
+        x, _ = self.attn(inputs, inputs, inputs)
+        return self.layer_norm(x + inputs)  # residual + layer norm
 
