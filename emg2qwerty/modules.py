@@ -278,3 +278,112 @@ class TDSConvEncoder(nn.Module):
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         return self.tds_conv_blocks(inputs)  # (T, N, num_features)
+
+
+class LSTMCell(nn.Module):
+    """Computes a single time step of an LSTM. All four gates live here."""
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        # One linear layer that computes all 4 gates at once (4*hidden_size outputs)
+        self.linear = nn.Linear(input_size + hidden_size, 4 * hidden_size)
+        self.ln = nn.LayerNorm(4 * hidden_size)
+
+    def forward(self, x, h_prev, c_prev):
+        gates = self.linear(torch.cat([x, h_prev], dim=-1))
+        gates = self.ln(gates)
+        f, i ,g, o = gates.chunk(4, dim=-1)
+        f, i, o =  f.sigmoid(), i.sigmoid(), o.sigmoid()
+        g = g.tanh()
+        c = f * c_prev + i * g
+        h = o * c.tanh()
+        return h, c
+    
+class LSTMLayer(nn.Module):
+    """Loops LSTMCell over time steps T."""
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.cell = LSTMCell(input_size, hidden_size)
+    
+    def forward(self, inputs):
+        T, N, _ = inputs.shape
+        h = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c = torch.zeros(N, self.hidden_size, device=inputs.device)
+        outputs = []
+        for t in range(T):
+            h, c = self.cell(inputs[t], h, c)
+            outputs.append(h)
+        return torch.stack(outputs, dim=0)  # (T, N, hidden_size)
+    
+class BidirectionalLSTMLayer(nn.Module):
+    """Runs two LSTMLayers in forward and backward directions and concatentates their outputs."""
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.forward_cell = LSTMCell(input_size, hidden_size)
+        self.backward_cell = LSTMCell(input_size, hidden_size)
+
+    def forward(self, inputs):
+        T, N, _ = inputs.shape
+        h_f = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c_f = torch.zeros(N, self.hidden_size, device=inputs.device)
+        fwd_outputs = []
+        for t in range(T):
+            h_f, c_f = self.forward_cell(inputs[t], h_f, c_f)
+            fwd_outputs.append(h_f)
+        
+        h_b = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c_b = torch.zeros(N, self.hidden_size, device=inputs.device)
+        bwd_outputs = []
+        for t in reversed(range(T)):
+            h_b, c_b = self.backward_cell(inputs[t], h_b, c_b)
+            bwd_outputs.append(h_b)
+        bwd_outputs.reverse()
+
+        fwd = torch.stack(fwd_outputs, dim=0)  # (T, N, hidden_size)
+        bwd = torch.stack(bwd_outputs, dim=0)  # (T, N, hidden_size)
+        return torch.cat([fwd, bwd], dim=-1)  # (T, N, 2*hidden_size)
+    
+class LSTMEncoder(nn.Module):
+    """Stacks multiple LSTMLayers, giving the same interface as TDSConvEncoder."""
+    def __init__(self, input_size, hidden_size, num_layers, dropout):
+        super().__init__()
+        layers = []
+        for i in range(num_layers):
+            in_size = input_size if i == 0 else 2 * hidden_size
+            layers.append(BidirectionalLSTMLayer(in_size, hidden_size))
+        self.layers = nn.ModuleList(layers)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, inputs):
+        x = inputs
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if i < len(self.layers) - 1:  # skip dropout after last layer
+                x = self.dropout(x)
+        return x  # (T, N, 2*hidden_size)
+    
+class TemporalAttention(nn.Module):
+    """Multi-head attention over the temporal dimension (T) for inputs of
+    shape (T, N, d_model), typically applied after a BiLSTM encoder to let
+    every time step attend to every other time step.
+    
+    The module follows the Transformer encoder-layer convention:
+    output = LayerNorm(x + MultiheadAttention(x, x, x))
+
+    Args:
+        d_model (int): Feature dimension of the input, i.e. 2*hidden_size when used after the BiLSTMEncoder.
+        num_heads (int): Number of parallel attention heads.
+        dropout: dropout probability applied inside the attention operation.
+    """
+
+    def __init__(self, d_model:int, num_heads: int, dropout: float = 0.0) -> None:
+        super().__init__()
+        self.attention = nn.MultiheadAttention(d_model, num_heads, dropout=dropout, batch_first=False)        
+        self.layer_norm = nn.LayerNorm(d_model)
+    
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        # inputs: (T, N, d_model)
+        attn_output, _ = self.attention(inputs, inputs, inputs)  # (T, N, d_model)
+        return self.layer_norm(inputs + attn_output)  # (T, N, d_model)
+    
