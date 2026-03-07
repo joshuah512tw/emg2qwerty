@@ -292,7 +292,7 @@ class LSTMCTCModule(CTCModule):
                 num_layers=num_layers,
                 dropout=dropout,
             ),
-            nn.Linear(hidden_size, charset().num_classes),
+            nn.Linear(2 * hidden_size, charset().num_classes),
             nn.LogSoftmax(dim=-1),
         )
 

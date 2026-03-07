@@ -315,14 +315,44 @@ class LSTMLayer(nn.Module):
             outputs.append(h)
         return torch.stack(outputs, dim=0)  # (T, N, hidden_size)
     
+class BidirectionalLSTMLayer(nn.Module):
+    """Runs two LSTMLayers in forward and backward directions and concatentates their outputs."""
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.forward_cell = LSTMCell(input_size, hidden_size)
+        self.backward_cell = LSTMCell(input_size, hidden_size)
+
+    def forward(self, inputs):
+        T, N, _ = inputs.shape
+        h_f = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c_f = torch.zeros(N, self.hidden_size, device=inputs.device)
+        fwd_outputs = []
+        for t in range(T):
+            h_f, c_f = self.forward_cell(inputs[t], h_f, c_f)
+            fwd_outputs.append(h_f)
+        
+        h_b = torch.zeros(N, self.hidden_size, device=inputs.device)
+        c_b = torch.zeros(N, self.hidden_size, device=inputs.device)
+        bwd_outputs = []
+        for t in reversed(range(T)):
+            h_b, c_b = self.backward_cell(inputs[t], h_b, c_b)
+            bwd_outputs.append(h_b)
+        bwd_outputs.reverse()
+
+        fwd = torch.stack(fwd_outputs, dim=0)  # (T, N, hidden_size)
+        bwd = torch.stack(bwd_outputs, dim=0)  # (T, N, hidden_size)
+        return torch.cat([fwd, bwd], dim=-1)  # (T, N, 2*hidden_size)
+    
 class LSTMEncoder(nn.Module):
     """Stacks multiple LSTMLayers, giving the same interface as TDSConvEncoder."""
     def __init__(self, input_size, hidden_size, num_layers, dropout):
         super().__init__()
-        sizes = [input_size] + [hidden_size] * num_layers
-        self.layers = nn.ModuleList([
-            LSTMLayer(sizes[i], sizes[i+1]) for i in range(num_layers)
-        ])
+        layers = []
+        for i in range(num_layers):
+            in_size = input_size if i == 0 else 2 * hidden_size
+            layers.append(BidirectionalLSTMLayer(in_size, hidden_size))
+        self.layers = nn.ModuleList(layers)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, inputs):
@@ -331,5 +361,5 @@ class LSTMEncoder(nn.Module):
             x = layer(x)
             if i < len(self.layers) - 1:  # skip dropout after last layer
                 x = self.dropout(x)
-        return x  # (T, N, hidden_size)
+        return x  # (T, N, 2*hidden_size)
 
