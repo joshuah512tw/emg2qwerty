@@ -341,7 +341,7 @@ class LSTMAttentionCTCModule(CTCModule):
                 num_layers=num_layers,
                 dropout=dropout,
             ),
-            TemporalAttention(hidden_size=2 * hidden_size, num_heads=num_heads, dropout=attention_dropout),
+            TemporalAttention(d_model=2 * hidden_size, num_heads=num_heads, dropout=attention_dropout),
             nn.Linear(2 * hidden_size, charset().num_classes),
             nn.LogSoftmax(dim=-1),
         )
