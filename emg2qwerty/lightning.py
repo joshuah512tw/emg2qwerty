@@ -26,6 +26,7 @@ from emg2qwerty.modules import (
     SpectrogramNorm,
     TDSConvEncoder,
     LSTMEncoder,
+    TemporalAttention,
 )
 from emg2qwerty.transforms import Transform
 
@@ -306,4 +307,51 @@ class LSTMCTCModule(CTCModule):
             }
         )
 
+class LSTMAttentionCTCModule(CTCModule):
 
+    def __init__(
+        self,
+        in_features: int,
+        mlp_features: Sequence[int],
+        hidden_size: int,
+        num_layers: int,
+        num_heads: int,
+        optimizer: DictConfig,
+        lr_scheduler: DictConfig,
+        decoder: DictConfig,
+        dropout: float = 0.0,
+        attention_dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.save_hyperparameters()  
+
+        num_features = self.NUM_BANDS * mlp_features[-1]
+
+        self.model = nn.Sequential(
+            SpectrogramNorm(channels=self.NUM_BANDS * self.ELECTRODE_CHANNELS),
+            MultiBandRotationInvariantMLP(
+                in_features=in_features,
+                mlp_features=mlp_features,
+                num_bands=self.NUM_BANDS,
+            ),
+            nn.Flatten(start_dim=2),
+            LSTMEncoder(
+                input_size=num_features,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                dropout=dropout,
+            ),
+            TemporalAttention(hidden_size=2 * hidden_size, num_heads=num_heads, dropout=attention_dropout),
+            nn.Linear(2 * hidden_size, charset().num_classes),
+            nn.LogSoftmax(dim=-1),
+        )
+
+        self.ctc_loss = nn.CTCLoss(blank=charset().null_class)
+        self.decoder = instantiate(decoder)
+        metrics = MetricCollection([CharacterErrorRates()])
+        self.metrics = nn.ModuleDict(
+            {
+                f"{phase}_metrics": metrics.clone(prefix=f"{phase}/")
+                for phase in ["train", "val", "test"]
+            }
+        )
