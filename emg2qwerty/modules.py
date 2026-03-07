@@ -286,9 +286,11 @@ class LSTMCell(nn.Module):
         super().__init__()
         # One linear layer that computes all 4 gates at once (4*hidden_size outputs)
         self.linear = nn.Linear(input_size + hidden_size, 4 * hidden_size)
+        self.ln = nn.LayerNorm(4 * hidden_size)
 
     def forward(self, x, h_prev, c_prev):
         gates = self.linear(torch.cat([x, h_prev], dim=-1))
+        gates = self.ln(gates)
         f, i ,g, o = gates.chunk(4, dim=-1)
         f, i, o =  f.sigmoid(), i.sigmoid(), o.sigmoid()
         g = g.tanh()
