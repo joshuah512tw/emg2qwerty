@@ -339,6 +339,8 @@ class LSTMCTCModule(CTCModule):
         lr_scheduler: DictConfig,
         decoder: DictConfig,
         dropout: float = 0.0,
+        k: int | None = None,
+        seed: int = 0
     ) -> None:
         super().__init__()
         self.save_hyperparameters()  
@@ -372,3 +374,25 @@ class LSTMCTCModule(CTCModule):
                 for phase in ["train", "val", "test"]
             }
         )
+
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        if self.hparams.k is not None:
+            inputs = self.num_channel_ablation(inputs, self.hparams.k, self.hparams.seed)
+        return self.model(inputs)
+    
+    def num_channel_ablation(self, inputs, k, seeds = 0):
+        T, N, B, C, F = inputs.shape
+        channel_total = B * C
+
+        g = torch.Generator(device = inputs.device)
+        g.manual_seed(seeds)
+
+        w = torch.ones(channel_total,device = inputs.device)
+        i = torch.multinomial(w, k, replacement = False, generator = g)
+
+        inputs = inputs.reshape(T, N, channel_total, F)
+        out = torch.zeros_like(inputs)
+        out[:, :, i, :] = inputs[:, :, i, :]
+        out = out.reshape(T, N, B, C, F)
+
+        return out
