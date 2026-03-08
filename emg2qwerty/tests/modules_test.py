@@ -43,5 +43,5 @@ def test_lstm_layer_output_shape(T: int, N: int, input_size: int, hidden_size: i
 def test_lstm_encoder_output_shape(
     T: int, N: int, input_size: int, hidden_size: int, num_layers: int
 ):
-    encoder = LSTMEncoder(input_size, hidden_size, num_layers)
-    assert encoder(torch.randn(T, N, input_size)).shape == (T, N, hidden_size)
+    encoder = LSTMEncoder(input_size, hidden_size, num_layers, dropout: 0.0)
+    assert encoder(torch.randn(T, N, input_size)).shape == (T, N, 2*hidden_size)

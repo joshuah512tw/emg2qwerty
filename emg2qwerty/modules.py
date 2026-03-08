@@ -346,7 +346,7 @@ class BidirectionalLSTMLayer(nn.Module):
     
 class LSTMEncoder(nn.Module):
     """Stacks multiple LSTMLayers, giving the same interface as TDSConvEncoder."""
-    def __init__(self, input_size, hidden_size, num_layers, dropout):
+    def __init__(self, input_size, hidden_size, num_layers, dropout: float = 0.0):
         super().__init__()
         layers = []
         for i in range(num_layers):

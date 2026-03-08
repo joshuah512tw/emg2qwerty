@@ -28,6 +28,10 @@ from emg2qwerty.modules import (
     LSTMEncoder,
     TemporalAttention,
 )
+
+from emg2qwerty.lightning import CTCModule
+
+
 from emg2qwerty.transforms import Transform
 
 
@@ -141,9 +145,9 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         )
 
 
-class TDSConvCTCModule(pl.LightningModule):
-    NUM_BANDS: ClassVar[int] = 2
+class TDSConvCTCModule(CTCModule):   # ← not pl.LightningModule
     ELECTRODE_CHANNELS: ClassVar[int] = 16
+
 
     def __init__(
         self,
@@ -206,88 +210,88 @@ class TDSConvCTCModule(pl.LightningModule):
         self.seed = seed
 
 
-    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
-        return self.model(inputs)
+    # def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+    #     return self.model(inputs)
 
-    def _step(
-        self, phase: str, batch: dict[str, torch.Tensor], *args, **kwargs
-    ) -> torch.Tensor:
-        inputs = batch["inputs"]
+    # def _step(
+    #     self, phase: str, batch: dict[str, torch.Tensor], *args, **kwargs
+    # ) -> torch.Tensor:
+    #     inputs = batch["inputs"]
         
-        if self.k is not None:
-            inputs = self.num_channel_ablation(inputs, self.k, self.seed)
+    #     if self.k is not None:
+    #         inputs = self.num_channel_ablation(inputs, self.k, self.seed)
 
-        if self.training and self.drop_rate is not None:
-            inputs = self.channel_dropout_per_band(inputs, self.drop_rate)
+    #     if self.training and self.drop_rate is not None:
+    #         inputs = self.channel_dropout_per_band(inputs, self.drop_rate)
 
-        targets = batch["targets"]
-        input_lengths = batch["input_lengths"]
-        target_lengths = batch["target_lengths"]
-        N = len(input_lengths)  # batch_size
+    #     targets = batch["targets"]
+    #     input_lengths = batch["input_lengths"]
+    #     target_lengths = batch["target_lengths"]
+    #     N = len(input_lengths)  # batch_size
 
-        emissions = self.forward(inputs)
+    #     emissions = self.forward(inputs)
 
-        # Shrink input lengths by an amount equivalent to the conv encoder's
-        # temporal receptive field to compute output activation lengths for CTCLoss.
-        # NOTE: This assumes the encoder doesn't perform any temporal downsampling
-        # such as by striding.
-        T_diff = inputs.shape[0] - emissions.shape[0]
-        emission_lengths = input_lengths - T_diff
+    #     Shrink input lengths by an amount equivalent to the conv encoder's
+    #     temporal receptive field to compute output activation lengths for CTCLoss.
+    #     NOTE: This assumes the encoder doesn't perform any temporal downsampling
+    #     such as by striding.
+    #     T_diff = inputs.shape[0] - emissions.shape[0]
+    #     emission_lengths = input_lengths - T_diff
 
-        loss = self.ctc_loss(
-            log_probs=emissions,  # (T, N, num_classes)
-            targets=targets.transpose(0, 1),  # (T, N) -> (N, T)
-            input_lengths=emission_lengths,  # (N,)
-            target_lengths=target_lengths,  # (N,)
-        )
+    #     loss = self.ctc_loss(
+    #         log_probs=emissions,  # (T, N, num_classes)
+    #         targets=targets.transpose(0, 1),  # (T, N) -> (N, T)
+    #         input_lengths=emission_lengths,  # (N,)
+    #         target_lengths=target_lengths,  # (N,)
+    #     )
 
-        # Decode emissions
-        predictions = self.decoder.decode_batch(
-            emissions=emissions.detach().cpu().numpy(),
-            emission_lengths=emission_lengths.detach().cpu().numpy(),
-        )
+    #     Decode emissions
+    #     predictions = self.decoder.decode_batch(
+    #         emissions=emissions.detach().cpu().numpy(),
+    #         emission_lengths=emission_lengths.detach().cpu().numpy(),
+    #     )
 
-        # Update metrics
-        metrics = self.metrics[f"{phase}_metrics"]
-        targets = targets.detach().cpu().numpy()
-        target_lengths = target_lengths.detach().cpu().numpy()
-        for i in range(N):
-            # Unpad targets (T, N) for batch entry
-            target = LabelData.from_labels(targets[: target_lengths[i], i])
-            metrics.update(prediction=predictions[i], target=target)
+    #     Update metrics
+    #     metrics = self.metrics[f"{phase}_metrics"]
+    #     targets = targets.detach().cpu().numpy()
+    #     target_lengths = target_lengths.detach().cpu().numpy()
+    #     for i in range(N):
+    #         Unpad targets (T, N) for batch entry
+    #         target = LabelData.from_labels(targets[: target_lengths[i], i])
+    #         metrics.update(prediction=predictions[i], target=target)
 
-        self.log(f"{phase}/loss", loss, batch_size=N, sync_dist=True)
-        return loss
+    #     self.log(f"{phase}/loss", loss, batch_size=N, sync_dist=True)
+    #     return loss
 
-    def _epoch_end(self, phase: str) -> None:
-        metrics = self.metrics[f"{phase}_metrics"]
-        self.log_dict(metrics.compute(), sync_dist=True)
-        metrics.reset()
+    # def _epoch_end(self, phase: str) -> None:
+    #     metrics = self.metrics[f"{phase}_metrics"]
+    #     self.log_dict(metrics.compute(), sync_dist=True)
+    #     metrics.reset()
 
-    def training_step(self, *args, **kwargs) -> torch.Tensor:
-        return self._step("train", *args, **kwargs)
+    # def training_step(self, *args, **kwargs) -> torch.Tensor:
+    #     return self._step("train", *args, **kwargs)
 
-    def validation_step(self, *args, **kwargs) -> torch.Tensor:
-        return self._step("val", *args, **kwargs)
+    # def validation_step(self, *args, **kwargs) -> torch.Tensor:
+    #     return self._step("val", *args, **kwargs)
 
-    def test_step(self, *args, **kwargs) -> torch.Tensor:
-        return self._step("test", *args, **kwargs)
+    # def test_step(self, *args, **kwargs) -> torch.Tensor:
+    #     return self._step("test", *args, **kwargs)
 
-    def on_train_epoch_end(self) -> None:
-        self._epoch_end("train")
+    # def on_train_epoch_end(self) -> None:
+    #     self._epoch_end("train")
 
-    def on_validation_epoch_end(self) -> None:
-        self._epoch_end("val")
+    # def on_validation_epoch_end(self) -> None:
+    #     self._epoch_end("val")
 
-    def on_test_epoch_end(self) -> None:
-        self._epoch_end("test")
+    # def on_test_epoch_end(self) -> None:
+    #     self._epoch_end("test")
 
-    def configure_optimizers(self) -> dict[str, Any]:
-        return utils.instantiate_optimizer_and_scheduler(
-            self.parameters(),
-            optimizer_config=self.hparams.optimizer,
-            lr_scheduler_config=self.hparams.lr_scheduler,
-        )
+    # def configure_optimizers(self) -> dict[str, Any]:
+    #     return utils.instantiate_optimizer_and_scheduler(
+    #         self.parameters(),
+    #         optimizer_config=self.hparams.optimizer,
+    #         lr_scheduler_config=self.hparams.lr_scheduler,
+    #     )
     
     def num_channel_ablation(self, inputs, k, seeds = 0):
         T, N, B, C, F = inputs.shape
