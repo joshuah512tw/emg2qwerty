@@ -26,7 +26,6 @@ from emg2qwerty.modules import (
     SpectrogramNorm,
     TDSConvEncoder,
     LSTMEncoder,
-    TemporalAttention,
 )
 
 from emg2qwerty.lightning import CTCModule
@@ -66,6 +65,9 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         self.train_transform = train_transform
         self.val_transform = val_transform
         self.test_transform = test_transform
+        
+        self.train_fraction = train_fraction
+        self.seed = seed    
 
     def setup(self, stage: str | None = None) -> None:
         self.train_dataset = ConcatDataset(
@@ -159,7 +161,7 @@ class TDSConvCTCModule(CTCModule):   # ← not pl.LightningModule
         lr_scheduler: DictConfig,
         decoder: DictConfig,
         k: int | None = None,
-        drop_rate = float,
+        drop_rate: float | None = None,
         seed: int = 0
     ) -> None:
         super().__init__()
