@@ -140,7 +140,7 @@ class WindowedEMGDataModule(pl.LightningDataModule):
             self.test_dataset,
             batch_size=1,
             shuffle=False,
-            num_workers=self.num_workers,
+            num_workers=0,
             collate_fn=WindowedEMGDataset.collate,
             pin_memory=False,
             persistent_workers=self.num_workers > 0,
