@@ -135,15 +135,16 @@ class WindowedEMGDataModule(pl.LightningDataModule):
         # Test dataset does not involve windowing and entire sessions are
         # fed at once. Limit batch size to 1 to fit within GPU memory and
         # avoid any influence of padding (while collating multiple batch items)
-        # in test scores.
+        # in test scores. Use num_workers=0 to avoid worker OOM when loading
+        # full sessions into memory.
         return DataLoader(
             self.test_dataset,
             batch_size=1,
             shuffle=False,
-            num_workers=self.num_workers,
+            num_workers=0,
             collate_fn=WindowedEMGDataset.collate,
             pin_memory=True,
-            persistent_workers=self.num_workers > 0,
+            persistent_workers=False,
         )
 
 
