@@ -101,8 +101,8 @@ class WindowedEMGDataModule(pl.LightningDataModule):
                     transform=self.test_transform,
                     # Feed the entire session at once without windowing/padding
                     # at test time for more realism
-                    window_length=None,
-                    padding=(0, 0),
+                    window_length=self.window_length,
+                    padding=self.padding,
                     jitter=False,
                 )
                 for hdf5_path in self.test_sessions
@@ -140,9 +140,9 @@ class WindowedEMGDataModule(pl.LightningDataModule):
             self.test_dataset,
             batch_size=1,
             shuffle=False,
-            num_workers=0,
+            num_workers=self.num_workers,
             collate_fn=WindowedEMGDataset.collate,
-            pin_memory=False,
+            pin_memory=True,
             persistent_workers=self.num_workers > 0,
         )
 
