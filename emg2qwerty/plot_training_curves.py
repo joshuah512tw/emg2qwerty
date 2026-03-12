@@ -159,12 +159,12 @@ if __name__ == "__main__":
     LOG_BASE = Path("~/emg2qwerty/logs").expanduser()
 
     MODELS = {
-    "Baseline":           LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
-    "CNN+RNN":            LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
+    #"Baseline":           LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
+    #"CNN+RNN":            LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
     "BiLSTM":             LOG_BASE / "2026-03-07/18-30-08/lightning_logs/version_0",
-    "BiGRU":              LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
-    "Attention":          LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
-    "BiLSTM + Attention": LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
+    #"BiGRU":              LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
+    #"Attention":          LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
+    #"BiLSTM + Attention": LOG_BASE / "YYYY-MM-DD/HH-MM-SS/lightning_logs/version_0",
 }
 
     TAGS = ["train/CER", "val/CER", "train/loss", "val/loss"]
