@@ -21,14 +21,14 @@ from emg2qwerty import utils
 from emg2qwerty.charset import charset
 from emg2qwerty.data import LabelData, WindowedEMGDataset
 from emg2qwerty.metrics import CharacterErrorRates
-from emg2qwerty.modules import (
+from emg2qwerty.modules_biLSTM import (
     MultiBandRotationInvariantMLP,
     SpectrogramNorm,
     TDSConvEncoder,
     LSTMEncoder,
 )
 
-from emg2qwerty.lightning import CTCModule
+from emg2qwerty.lightning_biLSTM import CTCModule
 
 
 from emg2qwerty.transforms import Transform
